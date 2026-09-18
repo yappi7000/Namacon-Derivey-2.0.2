@@ -306,17 +306,20 @@
         <tbody id="compareTbody"></tbody>
       </table>
     </div>
-    <div class="status" style="margin-top:6px;">※ 日付・施工業者・現場名のうち2つ以上が一致する過去記録（この端末に保存分）から自動で比較します</div>
+    <div class="btnrow">
+      <button class="btn-outline" id="compareResetBtn">🔄 自動値に戻す</button>
+    </div>
+    <div class="status" style="margin-top:6px;">※ 現場情報の「現場名・施工業者」が完全一致する過去記録から自動で拾います。一致が無ければ施工業者だけで探します（この端末に保存分）。前回・前々回の欄は直接書き換えて手修正もできます。</div>
   </div>
 
   <div class="card">
     <h2>現場終了レポート（全期間まとめ）</h2>
     <div class="status" style="margin-bottom:8px;">
-      施工業者・現場名を入力すると、その条件に一致する保存済みの日付をまとめて集計します。空欄のままなら現在入力中の現場情報で検索します。
+      施工業者・現場名を入力すると、その条件に一致する保存済みの日付をまとめて集計します。現場名は部分一致なので「ココファン」とだけ入力すれば「ココファン4F」「ココファン5F」なども全部まとめて拾えます。空欄のままなら、現在入力中の現場情報（完全一致）で検索します（現場名に階数まで入っていると他の階は拾えないので、複数階まとめたい時は検索欄に建物名だけ入力してください）。
     </div>
     <div class="grid" style="margin-bottom:8px;">
       <div><label>検索：施工業者</label><input type="text" id="sr_search_contractor" placeholder="未入力なら現在の施工業者で検索"></div>
-      <div><label>検索：現場名・打設箇所</label><input type="text" id="sr_search_site" placeholder="未入力なら現在の現場名で検索"></div>
+      <div><label>検索：現場名（部分一致）</label><input type="text" id="sr_search_site" placeholder="例）ココファン　※部分一致"></div>
     </div>
     <div class="btnrow">
       <button class="btn-green" id="siteReportRefreshBtn">📊 レポートを作る</button>
@@ -784,20 +787,25 @@ function loadDayFields(dateStr){
   try{ return (JSON.parse(raw).fields) || {}; }catch(e){ return null; }
 }
 
-// 日付・施工業者・現場名のうち「値が入っている項目」を数え、そのうち2つ以上が一致すればマッチとみなす
-// （1項目しか入力されていない場合はその1項目が一致すればOKにする＝従来どおり）
-function matchScore(target, current){
-  const keys = ['date','contractor','site'];
-  let setCount = 0, matchCount = 0;
-  keys.forEach(k=>{
-    if(current[k]){
-      setCount++;
-      if(target[k] === current[k]) matchCount++;
-    }
+// 「現場名・施工業者」が完全一致する過去記録を探し、無ければ施工業者だけでフォールバックする
+function findCompareMatches(pastDates, currentSite, currentContractor){
+  // Tier 1: 現場名・施工業者の両方が完全一致（どちらかが未入力ならその項目は絞り込まない）
+  let matched = pastDates.filter(dt=>{
+    const f = loadDayFields(dt);
+    if(!f) return false;
+    const siteOk = currentSite ? f.site === currentSite : true;
+    const contractorOk = currentContractor ? f.contractor === currentContractor : true;
+    return siteOk && contractorOk;
   });
-  if(setCount === 0) return true; // 何も指定が無ければ絞り込まない
-  const need = Math.min(2, setCount);
-  return matchCount >= need;
+  // Tier 2: 一致が1件も無ければ、施工業者だけで探す
+  if(matched.length === 0 && currentContractor){
+    matched = pastDates.filter(dt=>{
+      const f = loadDayFields(dt);
+      if(!f) return false;
+      return f.contractor === currentContractor;
+    });
+  }
+  return matched;
 }
 
 function buildCompareTable(){
@@ -808,14 +816,7 @@ function buildCompareTable(){
   try{ index = JSON.parse(localStorage.getItem('uchisetsu:_index') || '[]'); }catch(e){}
   const pastDates = index.filter(d => d && d < currentDate).sort().reverse();
 
-  // 日付・施工業者・現場名のうち2つ以上が一致する記録を「前回・前々回」として拾う
-  const current = { date: currentDate, contractor: currentContractor, site: currentSite };
-  const matchedDates = pastDates.filter(dt=>{
-    const f = loadDayFields(dt);
-    if(!f) return false;
-    const target = { date: dt, contractor: f.contractor || '', site: f.site || '' };
-    return matchScore(target, current);
-  });
+  const matchedDates = findCompareMatches(pastDates, currentSite, currentContractor);
 
   const today = computeLiveStats();
   const prev1 = matchedDates[0] ? loadDayStats(matchedDates[0]) : null;
@@ -968,24 +969,24 @@ function infoGridHtml(pairs){
 function fv(id){ return document.getElementById('f_'+id).value; }
 function fc(id){ return document.getElementById('f_'+id).checked; }
 
-// 現場終了レポート用の検索条件（未入力なら現在の現場情報にフォールバック）
-function srSearchValues(){
-  const c = document.getElementById('sr_search_contractor').value.trim();
-  const s = document.getElementById('sr_search_site').value.trim();
-  return {
-    contractor: c || fv('contractor'),
-    site: s || fv('site'),
-  };
-}
-
 // 検索条件（施工業者・現場名）に一致する、保存済みの日付一覧を取得（昇順）
+// 検索欄に入力がある場合、現場名は部分一致（例：「ココファン」で「ココファン4F」等をまとめて拾う）
+// 検索欄が空の場合は、現在入力中の現場名で完全一致検索する
 function getSiteAllDates(){
-  const { contractor: currentContractor, site: currentSite } = srSearchValues();
+  const searchSite = document.getElementById('sr_search_site').value.trim();
+  const searchContractor = document.getElementById('sr_search_contractor').value.trim();
+  const currentContractor = searchContractor || fv('contractor');
   const index = getAllSavedDates();
   const matched = index.filter(dt=>{
     const f = loadDayFields(dt);
     if(!f) return false;
-    const siteOk = currentSite ? f.site === currentSite : true;
+    let siteOk;
+    if(searchSite){
+      siteOk = (f.site || '').indexOf(searchSite) !== -1; // 部分一致
+    } else {
+      const currentSite = fv('site');
+      siteOk = currentSite ? f.site === currentSite : true; // 完全一致（フォールバック）
+    }
     const contractorOk = currentContractor ? f.contractor === currentContractor : true;
     return siteOk && contractorOk;
   });
@@ -994,13 +995,18 @@ function getSiteAllDates(){
 
 // 同じ現場の全日程をまとめて集計する（現場終了時のレポート用）
 function gatherSiteReport(){
-  const { contractor: searchContractor, site: searchSite } = srSearchValues();
+  const searchSiteRaw = document.getElementById('sr_search_site').value.trim();
+  const searchContractorRaw = document.getElementById('sr_search_contractor').value.trim();
+  const searchContractor = searchContractorRaw || fv('contractor');
   const currentDate = fv('date') || todayStr();
   let dates = getSiteAllDates();
-  // 現在画面に入力中のデータが検索条件に合致する場合のみ、今回分も合算する
-  const liveMatches = (!searchSite || fv('site') === searchSite) && (!searchContractor || fv('contractor') === searchContractor);
+  // 現在画面に入力中のデータが検索条件に合致する場合のみ、今回分も合算する（現場名は部分一致で判定）
+  const liveSiteOk = searchSiteRaw ? fv('site').indexOf(searchSiteRaw) !== -1 : true;
+  const liveContractorOk = searchContractor ? fv('contractor') === searchContractor : true;
+  const liveMatches = liveSiteOk && liveContractorOk;
   if(liveMatches && !dates.includes(currentDate)) dates.push(currentDate);
   dates = Array.from(new Set(dates)).sort();
+  const searchSite = searchSiteRaw || fv('site');
 
   const perDay = dates.map(dt => (dt === currentDate && liveMatches) ? computeLiveStats() : loadDayStats(dt)).filter(Boolean);
 
@@ -1571,6 +1577,12 @@ document.getElementById('clearBtn').addEventListener('click', ()=>{
     ensureRowsExist();
     scheduleSave();
   }
+});
+document.getElementById('compareResetBtn').addEventListener('click', ()=>{
+  currentCompareOverride = {};
+  compareBuilt = false;
+  computeAll();
+  scheduleSave();
 });
 document.getElementById('refreshSummaryBtn').addEventListener('click', buildSummary);
 document.getElementById('shareImgBtn').addEventListener('click', shareAsImage);
