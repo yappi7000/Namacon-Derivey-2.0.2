@@ -236,6 +236,15 @@
     </div>
     <div class="grid" style="margin-top:8px;">
       <div>
+        <label>打設ブロック（同日・同じ現場で打設箇所や配合が複数ある場合に切替）</label>
+        <select id="f_block">
+          <option value="">①（通常）</option>
+          <option value="2">②</option>
+          <option value="3">③</option>
+          <option value="4">④</option>
+        </select>
+      </div>
+      <div>
         <label>ポンプ運用（同日2台稼働時のみ切替）</label>
         <select id="f_pumpsheet">
           <option value="">通常（ポンプ1台）</option>
@@ -245,6 +254,7 @@
         </select>
       </div>
     </div>
+    <div class="status" id="blockModeNote" style="margin-top:4px;"></div>
     <div class="status" id="pumpModeNote" style="margin-top:4px;"></div>
     <details style="margin-top:10px;">
       <summary>打設詳細を入力（呼び強度・スランプなど）▾</summary>
@@ -531,6 +541,7 @@
       <thead>
         <tr>
           <th style="border:1px solid #D9D6CE;background:#3E5468;color:#fff;font-size:14px;padding:9px 5px;">日付</th>
+          <th style="border:1px solid #D9D6CE;background:#3E5468;color:#fff;font-size:14px;padding:9px 5px;">打設箇所／配合</th>
           <th style="border:1px solid #D9D6CE;background:#3E5468;color:#fff;font-size:14px;padding:9px 5px;">開始</th>
           <th style="border:1px solid #D9D6CE;background:#3E5468;color:#fff;font-size:14px;padding:9px 5px;">終了</th>
           <th style="border:1px solid #D9D6CE;background:#3E5468;color:#fff;font-size:14px;padding:9px 5px;">台数</th>
@@ -585,7 +596,7 @@ let lastHourly = {};
 let compareBuilt = false;
 let currentCompareOverride = {};
 // 比較表の行キー一覧（buildCompareTable の rowsDef と同じ並び順にすること）
-const compareRowKeys = ['date','start','end','duration','pitch','m3','place','contractor','plant'];
+const compareRowKeys = ['date','start','end','duration','pitch','m3','place','mix','contractor','plant'];
 
 function buildReviewGrid(){
   const grid = document.getElementById('reviewGrid');
@@ -700,9 +711,11 @@ function autoFillM3(){
   });
 }
 
-// 指定日の localStorage 保存データから、比較用の統計を計算する（通常運用＝ポンプ1台分の保存キーのみ対象）
-function loadDayStats(dateStr){
-  const raw = localStorage.getItem('uchisetsu:' + dateStr);
+// 指定した保存キー（recordKey。例："2026-09-24" や "2026-09-24_b2_p1"）から
+// 比較・レポート用の統計を計算する。日付の後ろにブロック(_bN)・ポンプ(_pN)の
+// 区分が付いている場合も、同じ日付・同じ現場の別の打設（打設箇所・配合違い）として扱う。
+function loadRecordStats(recordKey){
+  const raw = localStorage.getItem('uchisetsu:' + recordKey);
   if(!raw) return null;
   let data;
   try{ data = JSON.parse(raw); }catch(e){ return null; }
@@ -721,7 +734,8 @@ function loadDayStats(dateStr){
   }
   const f = data.fields || {};
   return {
-    date: dateStr,
+    recordKey: recordKey,
+    date: (f.date || recordKey.split('_')[0]),
     start: minToTime(cMin),
     end: minToTime(dMax),
     duration: duration!==null ? fmtMinJp(duration) : '-',
@@ -731,6 +745,8 @@ function loadDayStats(dateStr){
     m3num: m3sum,
     count: rows.length,
     place: [f.site, f.area].filter(Boolean).join(' '),
+    area: f.area || '',
+    mix: f.mix || '',
     plant: f.plant || '',
     contractor: f.contractor || '',
     site: f.site || '',
@@ -759,6 +775,7 @@ function computeLiveStats(){
     if(duration > 0) pitch = m3sum / (duration/60);
   }
   return {
+    recordKey: storageKey(fv('date') || todayStr()).substring('uchisetsu:'.length),
     date: fv('date'),
     start: minToTime(cMin),
     end: minToTime(dMax),
@@ -769,31 +786,42 @@ function computeLiveStats(){
     m3num: m3sum,
     count: count,
     place: [fv('site'), fv('area')].filter(Boolean).join(' '),
+    area: fv('area') || '',
+    mix: fv('mix') || '',
     plant: fv('plant') || '',
     contractor: fv('contractor') || '',
     site: fv('site') || '',
   };
 }
 
-// 保存済みの全日付インデックスを返す
-function getAllSavedDates(){
-  let index = [];
-  try{ index = JSON.parse(localStorage.getItem('uchisetsu:_index') || '[]'); }catch(e){}
-  return index;
+// localStorage を直接スキャンして、保存済みの全レコードキー（日付＋ブロック・ポンプ区分）を返す
+// （バックアップの読み込みなどで uchisetsu:_index が更新されていなくても、常に実データを正しく拾える）
+function getAllRecordKeys(){
+  const keys = [];
+  for(let i=0;i<localStorage.length;i++){
+    const k = localStorage.key(i);
+    if(k && k.indexOf('uchisetsu:') === 0 && k !== 'uchisetsu:_index'){
+      keys.push(k.substring('uchisetsu:'.length));
+    }
+  }
+  return keys;
+}
+function recordKeyDate(recordKey){
+  return recordKey.split('_')[0];
 }
 
-// 指定した日付の保存データ（fields部分）を取得
-function loadDayFields(dateStr){
-  const raw = localStorage.getItem('uchisetsu:' + dateStr);
+// 指定した保存キーの fields 部分だけを取得
+function loadRecordFields(recordKey){
+  const raw = localStorage.getItem('uchisetsu:' + recordKey);
   if(!raw) return null;
   try{ return (JSON.parse(raw).fields) || {}; }catch(e){ return null; }
 }
 
 // 「現場名・施工業者」が完全一致する過去記録を探し、無ければ施工業者だけでフォールバックする
-function findCompareMatches(pastDates, currentSite, currentContractor){
+function findCompareMatches(pastKeys, currentSite, currentContractor){
   // Tier 1: 現場名・施工業者の両方が完全一致（どちらかが未入力ならその項目は絞り込まない）
-  let matched = pastDates.filter(dt=>{
-    const f = loadDayFields(dt);
+  let matched = pastKeys.filter(rk=>{
+    const f = loadRecordFields(rk);
     if(!f) return false;
     const siteOk = currentSite ? f.site === currentSite : true;
     const contractorOk = currentContractor ? f.contractor === currentContractor : true;
@@ -801,8 +829,8 @@ function findCompareMatches(pastDates, currentSite, currentContractor){
   });
   // Tier 2: 一致が1件も無ければ、施工業者だけで探す
   if(matched.length === 0 && currentContractor){
-    matched = pastDates.filter(dt=>{
-      const f = loadDayFields(dt);
+    matched = pastKeys.filter(rk=>{
+      const f = loadRecordFields(rk);
       if(!f) return false;
       return f.contractor === currentContractor;
     });
@@ -814,15 +842,16 @@ function buildCompareTable(){
   const currentDate = fv('date') || todayStr();
   const currentSite = fv('site');
   const currentContractor = fv('contractor');
-  let index = [];
-  try{ index = JSON.parse(localStorage.getItem('uchisetsu:_index') || '[]'); }catch(e){}
-  const pastDates = index.filter(d => d && d < currentDate).sort().reverse();
+  // 日付だけで「過去」を判定する（同日の別ブロック・別ポンプは「前回」に含めない）
+  const pastKeys = getAllRecordKeys()
+    .filter(rk => recordKeyDate(rk) && recordKeyDate(rk) < currentDate)
+    .sort((a,b)=> recordKeyDate(b).localeCompare(recordKeyDate(a)) || a.localeCompare(b));
 
-  const matchedDates = findCompareMatches(pastDates, currentSite, currentContractor);
+  const matchedKeys = findCompareMatches(pastKeys, currentSite, currentContractor);
 
   const today = computeLiveStats();
-  const prev1 = matchedDates[0] ? loadDayStats(matchedDates[0]) : null;
-  const prev2 = matchedDates[1] ? loadDayStats(matchedDates[1]) : null;
+  const prev1 = matchedKeys[0] ? loadRecordStats(matchedKeys[0]) : null;
+  const prev2 = matchedKeys[1] ? loadRecordStats(matchedKeys[1]) : null;
 
   const rowsDef = [
     {label:'日にち', key:'date'},
@@ -832,6 +861,7 @@ function buildCompareTable(){
     {label:'平均ピッチ', key:'pitch', suffix:'m3/h'},
     {label:'数量', key:'m3', suffix:'m3'},
     {label:'打設箇所', key:'place'},
+    {label:'配合', key:'mix'},
     {label:'施工業者', key:'contractor'},
     {label:'プラント', key:'plant'},
   ];
@@ -971,16 +1001,16 @@ function infoGridHtml(pairs){
 function fv(id){ return document.getElementById('f_'+id).value; }
 function fc(id){ return document.getElementById('f_'+id).checked; }
 
-// 検索条件（施工業者・現場名）に一致する、保存済みの日付一覧を取得（昇順）
+// 検索条件（施工業者・現場名）に一致する、保存済みのレコードキー一覧を取得（同日の複数ブロックも別々に含む）
 // 検索欄に入力がある場合、現場名は部分一致（例：「ココファン」で「ココファン4F」等をまとめて拾う）
 // 検索欄が空の場合は、現在入力中の現場名で完全一致検索する
-function getSiteAllDates(){
+function getSiteMatchingKeys(){
   const searchSite = document.getElementById('sr_search_site').value.trim();
   const searchContractor = document.getElementById('sr_search_contractor').value.trim();
   const currentContractor = searchContractor || fv('contractor');
-  const index = getAllSavedDates();
-  const matched = index.filter(dt=>{
-    const f = loadDayFields(dt);
+  const allKeys = getAllRecordKeys();
+  const matched = allKeys.filter(rk=>{
+    const f = loadRecordFields(rk);
     if(!f) return false;
     let siteOk;
     if(searchSite){
@@ -995,25 +1025,25 @@ function getSiteAllDates(){
   return matched.sort();
 }
 
-// 同じ現場の全日程をまとめて集計する（現場終了時のレポート用）
+// 同じ現場の全日程・全ブロックをまとめて集計する（現場終了時のレポート用）
 function gatherSiteReport(){
   const searchSiteRaw = document.getElementById('sr_search_site').value.trim();
   const searchContractorRaw = document.getElementById('sr_search_contractor').value.trim();
   const searchContractor = searchContractorRaw || fv('contractor');
-  const currentDate = fv('date') || todayStr();
-  let dates = getSiteAllDates();
+  const currentRecordKey = storageKey(fv('date') || todayStr()).substring('uchisetsu:'.length);
+  let keys = getSiteMatchingKeys();
   // 現在画面に入力中のデータが検索条件に合致する場合のみ、今回分も合算する（現場名は部分一致で判定）
   const liveSiteOk = searchSiteRaw ? fv('site').indexOf(searchSiteRaw) !== -1 : true;
   const liveContractorOk = searchContractor ? fv('contractor') === searchContractor : true;
   const liveMatches = liveSiteOk && liveContractorOk;
-  if(liveMatches && !dates.includes(currentDate)) dates.push(currentDate);
-  dates = Array.from(new Set(dates)).sort();
+  if(liveMatches && !keys.includes(currentRecordKey)) keys.push(currentRecordKey);
+  keys = Array.from(new Set(keys)).sort();
   const searchSite = searchSiteRaw || fv('site');
 
-  const perDay = dates.map(dt => (dt === currentDate && liveMatches) ? computeLiveStats() : loadDayStats(dt)).filter(Boolean);
+  const perRecord = keys.map(rk => (rk === currentRecordKey && liveMatches) ? computeLiveStats() : loadRecordStats(rk)).filter(Boolean);
 
   let totalM3 = 0, totalCount = 0, totalDurationMin = 0;
-  perDay.forEach(d=>{
+  perRecord.forEach(d=>{
     totalM3 += d.m3num || 0;
     totalCount += d.count || 0;
     if(d.durationMin) totalDurationMin += d.durationMin;
@@ -1025,12 +1055,12 @@ function gatherSiteReport(){
     area: fv('area'),
     contractor: searchContractor || fv('contractor'),
     plant: fv('plant'),
-    days: perDay,
-    totalDays: perDay.length,
+    days: perRecord,
+    totalDays: perRecord.length,
     totalM3: totalM3,
     totalCount: totalCount,
     avgPitch: avgPitch,
-    dateRange: perDay.length ? `${perDay[0].date} 〜 ${perDay[perDay.length-1].date}` : '-',
+    dateRange: perRecord.length ? `${perRecord[0].date} 〜 ${perRecord[perRecord.length-1].date}` : '-',
   };
 }
 
@@ -1048,7 +1078,8 @@ function buildSiteReportText(){
   lines.push(`━━━━━━━━━━`);
   lines.push('【日別内訳】');
   r.days.forEach(d=>{
-    lines.push(`${d.date}　${d.start}〜${d.end}　${d.count}台／${d.m3}m3／ピッチ${d.pitch}m3/h`);
+    const detail = [d.area, d.mix].filter(Boolean).join('／');
+    lines.push(`${d.date}${detail? '　['+detail+']':''}　${d.start}〜${d.end}　${d.count}台／${d.m3}m3／ピッチ${d.pitch}m3/h`);
   });
   document.getElementById('siteReportText').value = lines.join('\n');
 }
@@ -1068,7 +1099,8 @@ function buildSiteReportCard(){
   tb.innerHTML = r.days.map((d,i)=>{
     const bg = i%2===0 ? '#FFFFFF' : '#FAFAF8';
     const td = 'style="border:1px solid #D9D6CE;padding:8px 5px;font-size:14px;text-align:center;background:'+bg+';"';
-    return `<tr><td ${td}>${d.date}</td><td ${td}>${d.start}</td><td ${td}>${d.end}</td><td ${td}>${d.count}</td><td ${td}>${d.m3}</td><td ${td}>${d.pitch}</td></tr>`;
+    const detail = [d.area, d.mix].filter(Boolean).join('／') || '-';
+    return `<tr><td ${td}>${d.date}</td><td ${td}>${detail}</td><td ${td}>${d.start}</td><td ${td}>${d.end}</td><td ${td}>${d.count}</td><td ${td}>${d.m3}</td><td ${td}>${d.pitch}</td></tr>`;
   }).join('');
 }
 
@@ -1445,8 +1477,10 @@ function applyData(data){
 
 function storageKey(date){
   const p = document.getElementById('f_pumpsheet').value;
-  const suffix = (p === '1' || p === '2') ? ('_p'+p) : '';
-  return 'uchisetsu:' + date + suffix;
+  const b = document.getElementById('f_block').value;
+  const pumpSuffix = (p === '1' || p === '2') ? ('_p'+p) : '';
+  const blockSuffix = (b === '2' || b === '3' || b === '4') ? ('_b'+b) : '';
+  return 'uchisetsu:' + date + blockSuffix + pumpSuffix;
 }
 
 function saveToStorage(){
@@ -1474,6 +1508,7 @@ function loadForDate(date){
       applyData(JSON.parse(raw));
       document.getElementById('saveStatus').textContent = 'この日のデータを読み込みました';
       updatePumpModeNote();
+      updateBlockModeNote();
       ensureRowsExist();
       return;
     }catch(e){ /* corrupt, fall through */ }
@@ -1483,7 +1518,42 @@ function loadForDate(date){
   }catch(e){ /* 最終手段：とにかく空の行だけは出す */ }
   document.getElementById('saveStatus').textContent = '新規の記録を開始します';
   updatePumpModeNote();
+  updateBlockModeNote();
   ensureRowsExist();
+}
+
+// 打設ブロックを切替えた際、まだ保存が無い新規ブロックであれば
+// 現場名・施工業者など「同じ現場で共通のはずの項目」だけ引き継ぎ、
+// 打設箇所・配合・打設詳細・台数記録などブロック固有の項目は空にして開始する
+function switchToBlock(){
+  const date = fv('date') || todayStr();
+  const key = storageKey(date);
+  const raw = localStorage.getItem(key);
+  if(raw){
+    loadForDate(date);
+    return;
+  }
+  const carry = {
+    date: date,
+    weather: fv('weather'),
+    contractor: fv('contractor'),
+    site: fv('site'),
+    plant: fv('plant'),
+    pump: fv('pump'),
+    supervisor: fv('supervisor'),
+    tester: fv('tester'),
+    dealer: fv('dealer'),
+    distance_min: fv('distance_min'),
+    distance_km: fv('distance_km'),
+  };
+  const emptyFields = Object.fromEntries(fields.map(f=>[f,'']));
+  Object.assign(emptyFields, carry);
+  try{ applyData({fields: emptyFields, checks:{}, totalManual:{}, rows: []}); }catch(e){}
+  ensureRowsExist();
+  updatePumpModeNote();
+  updateBlockModeNote();
+  document.getElementById('saveStatus').textContent = '新しい打設ブロックを開始しました（現場名などは引き継ぎ済み。打設箇所・配合・台数記録はこのブロックだけの内容を入力してください）';
+  scheduleSave();
 }
 
 function ensureRowsExist(){
@@ -1554,6 +1624,17 @@ function updatePumpModeNote(){
   } else {
     note.textContent = '';
     pumpColHead.style.display = '';
+  }
+}
+
+function updateBlockModeNote(){
+  const b = document.getElementById('f_block').value;
+  const note = document.getElementById('blockModeNote');
+  if(b === '2' || b === '3' || b === '4'){
+    const marks = {'2':'②','3':'③','4':'④'};
+    note.textContent = `打設ブロック${marks[b]}を表示中（同じ日付・同じ現場でも打設箇所・配合・台数記録はこのブロックだけの独立した内容です）`;
+  } else {
+    note.textContent = '';
   }
 }
 
@@ -1640,6 +1721,7 @@ document.getElementById('f_date').addEventListener('change', (e)=>{
 document.getElementById('f_pumpsheet').addEventListener('change', ()=>{
   loadForDate(document.getElementById('f_date').value || todayStr());
 });
+document.getElementById('f_block').addEventListener('change', switchToBlock);
 
 // ---- init ----
 (async function init(){
