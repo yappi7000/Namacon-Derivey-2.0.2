@@ -1336,7 +1336,8 @@ function buildSummary(){
       const todayVal = tr.querySelector('.cmp-today').textContent.trim();
       const prev1Val = tr.querySelector('.cmp-input[data-col="prev1"]').value || '-';
       const prev2Val = tr.querySelector('.cmp-input[data-col="prev2"]').value || '-';
-      lines.push(`${label}：今回 ${todayVal}／前回 ${prev1Val}／前々回 ${prev2Val}`);
+      lines.push(label);
+      lines.push(`今回${todayVal} / 前回${prev1Val} / 前々回${prev2Val}`);
     });
     lines.push(`━━━━━━━━━━`);
   }
