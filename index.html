@@ -1390,6 +1390,7 @@ function buildSummary(){
 
   if(rows.length){
     lines.push('【台数別 時間記録】');
+    lines.push('台数｜車番｜工場発｜打設開始｜打設完了｜所要時間｜荷降し｜備考');
     rows.forEach(tr=>{
       const rownum = tr.querySelector('.rownum').textContent || '-';
       const no = tr.querySelector('.c_no').value || '-';
@@ -1401,8 +1402,8 @@ function buildSummary(){
       const d = dRaw || '--:--';
       const da = fmtMinJp(diffMin(aRaw, dRaw));
       const dc = fmtMinJp(diffMin(cRaw, dRaw));
-      const note = tr.querySelector('.c_note').value;
-      lines.push(`${rownum}　${no}号車　工場発${a}→打設開始${c}→打設完了${d}　所要${da}／荷降し${dc}${note? '　['+note+']':''}`);
+      const note = tr.querySelector('.c_note').value || '-';
+      lines.push(`${rownum}｜${no}｜${a}｜${c}｜${d}｜${da}｜${dc}｜${note}`);
     });
     lines.push(`━━━━━━━━━━`);
   }
