@@ -286,6 +286,7 @@
           </div>
         </div>
         <div><label>現場担当者</label><input type="text" id="f_supervisor"></div>
+        <div><label>現場担当者 電話番号</label><input type="tel" id="f_supervisor_tel" placeholder="090-1234-5678"></div>
         <div><label>試験員</label><input type="text" id="f_tester"></div>
         <div><label>販売店</label>
           <select id="f_dealer">
@@ -584,7 +585,7 @@
 
 <script>
 const tbody = document.getElementById('tbody');
-const fields = ['date','weather','site','area','contractor','plant','pump','mix','strength','slump','agg','cement','planned','supervisor',
+const fields = ['date','weather','site','area','contractor','plant','pump','mix','strength','slump','agg','cement','planned','supervisor','supervisor_tel',
   'admixture','expansive','waiting','loadsize','rounds','lunch','lunch_start','lunch_end','tester','dealer',
   'distance_min','distance_km','totalcount','totalm3','leftover','contact',
   'asakurei','startstamp','endstamp','nextdate','nextsite','nextsales','nextplant','reviewnote'];
@@ -1339,7 +1340,7 @@ function buildSummary(){
     {label:'積み数', value:fv('loadsize')? fv('loadsize')+'m3/台':''},
     {label:'台数(台回り)', value:fv('rounds')},
     {label:'昼休憩', value:fv('lunch')},
-    {label:'現場担当者', value:fv('supervisor')},
+    {label:'現場担当者', value:[fv('supervisor'), fv('supervisor_tel')].filter(Boolean).join(' ☎')},
     {label:'試験員', value:fv('tester')},
     {label:'販売店', value:fv('dealer')},
     {label:'プラント〜現場', value:distance},
@@ -1433,8 +1434,13 @@ function buildSummary(){
   }
 
   lines.push(PLANT_CRITERIA_TEXT);
+  lines.push(`━━━━━━━━━━`);
+  lines.push(SIGNATURE_TEXT);
   document.getElementById('summaryText').value = lines.join('\n');
 }
+
+const SIGNATURE_TEXT = `生コンデリバリー
+Y'sサービス　中田やすゆき　☎️ 070-8504-7979`;
 
 const PLANT_CRITERIA_TEXT = `【生コン打設に関するプラント（販売店）選定基準　10箇条】
 ①打設ピッチに対応できるプラント能力を有しているか？　プラント製造能力 m3/h
