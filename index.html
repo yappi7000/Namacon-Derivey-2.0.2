@@ -278,6 +278,13 @@
         <div><label>積み数(m3積/台)</label><input type="number" id="f_loadsize" step="0.1"></div>
         <div><label>台数(台回り)</label><input type="text" id="f_rounds"></div>
         <div><label>昼休憩</label><input type="text" id="f_lunch" placeholder="あり(60分)／なし"></div>
+        <div><label>昼休憩 時間帯（待ち時間の集計から除外）</label>
+          <div style="display:flex;gap:4px;align-items:center;">
+            <input type="time" id="f_lunch_start" style="width:45%;">
+            <span style="font-size:12px;color:var(--ink-soft);">〜</span>
+            <input type="time" id="f_lunch_end" style="width:45%;">
+          </div>
+        </div>
         <div><label>現場担当者</label><input type="text" id="f_supervisor"></div>
         <div><label>試験員</label><input type="text" id="f_tester"></div>
         <div><label>販売店</label>
@@ -347,7 +354,8 @@
     <div class="item"><div class="val" id="d_m3">0.0</div><div class="lbl">打設量 m3</div></div>
     <div class="item"><div class="val" id="d_pitch">0.0</div><div class="lbl">平均ピッチ m3/h</div></div>
     <div class="item"><div class="val" id="d_elapsed">--:--</div><div class="lbl">経過時間</div></div>
-    <div class="item"><div class="val" id="d_gap" style="font-size:22px;">0分</div><div class="lbl">待ち時間合計</div></div>
+    <div class="item"><div class="val" id="d_gap" style="font-size:22px;">0分</div><div class="lbl">待ち時間合計（昼休憩を除く）</div></div>
+    <div class="item"><div class="val" id="d_lunch" style="font-size:22px;">0分</div><div class="lbl">昼休憩</div></div>
   </div>
 
   <div class="card">
@@ -495,7 +503,8 @@
       <div style="text-align:center;"><div id="share_m3" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:30px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">打設量 M3</div></div>
       <div style="text-align:center;"><div id="share_pitch" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:30px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">平均ピッチ M3/H</div></div>
       <div style="text-align:center;"><div id="share_elapsed" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:30px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">経過時間</div></div>
-      <div style="text-align:center;"><div id="share_gap" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:24px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">待ち時間合計</div></div>
+      <div style="text-align:center;"><div id="share_gap" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:24px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">待ち時間(昼休憩除く)</div></div>
+      <div style="text-align:center;"><div id="share_lunch" style="font-family:'Roboto Mono',monospace;font-weight:700;font-size:24px;color:#F4A24A;"></div><div style="font-size:12px;color:#9AA3AC;margin-top:4px;">昼休憩</div></div>
     </div>
     <table style="width:calc(100% - 48px);margin:0 24px 20px;border-collapse:collapse;">
       <thead>
@@ -576,7 +585,7 @@
 <script>
 const tbody = document.getElementById('tbody');
 const fields = ['date','weather','site','area','contractor','plant','pump','mix','strength','slump','agg','cement','planned','supervisor',
-  'admixture','expansive','waiting','loadsize','rounds','lunch','tester','dealer',
+  'admixture','expansive','waiting','loadsize','rounds','lunch','lunch_start','lunch_end','tester','dealer',
   'distance_min','distance_km','totalcount','totalm3','leftover','contact',
   'asakurei','startstamp','endstamp','nextdate','nextsite','nextsales','nextplant','reviewnote'];
 const checkFields = ['precheck','slipsign'];
@@ -598,6 +607,9 @@ let compareBuilt = false;
 let currentCompareOverride = {};
 // 比較表の行キー一覧（buildCompareTable の rowsDef と同じ並び順にすること）
 const compareRowKeys = ['date','start','end','duration','pitch','m3','place','mix','contractor','plant'];
+// 各項目の値が「数値・日付系」か「文字（名称）系」かで、テキスト送信時の区切り方を変える
+// 数値・日付系は「今回 値」のように半角スペース、文字系は「今回：値」のようにコロンで区切る
+const compareRowTypes = ['num','num','num','num','num','num','text','text','text','text'];
 
 function buildReviewGrid(){
   const grid = document.getElementById('reviewGrid');
@@ -927,6 +939,8 @@ function computeAll(){
 
   // 待ち時間合計：前の台の打設完了(d)から次の台の打設開始(c)までの空き時間を合計する
   // （生コン車がスムーズに来ていれば前の完了=次の開始で差は0。遅れた分だけ加算）
+  // ただし、この合計には昼休憩の空き時間もそのまま含まれてしまうため、
+  // 「昼休憩 時間帯」で指定した分数を差し引いて、正味の待ち時間として表示する。
   let totalGap = 0;
   let prevDMin = null;
   rows.forEach(tr=>{
@@ -942,7 +956,11 @@ function computeAll(){
     }
     if(dMin !== null) prevDMin = dMin;
   });
-  document.getElementById('d_gap').textContent = fmtMinJp(totalGap);
+  const lunchMinRaw = diffMin(fv('lunch_start'), fv('lunch_end'));
+  const lunchMin = lunchMinRaw===null ? 0 : lunchMinRaw;
+  const netGap = Math.max(0, totalGap - lunchMin);
+  document.getElementById('d_gap').textContent = fmtMinJp(netGap);
+  document.getElementById('d_lunch').textContent = lunchMin>0 ? fmtMinJp(lunchMin) : '0分';
 
   document.getElementById('d_count').textContent = count;
   document.getElementById('d_m3').textContent = m3sum.toFixed(2);
@@ -1132,6 +1150,7 @@ function buildShareCard(){
   document.getElementById('share_pitch').textContent = document.getElementById('d_pitch').textContent;
   document.getElementById('share_elapsed').textContent = document.getElementById('d_elapsed').textContent;
   document.getElementById('share_gap').textContent = document.getElementById('d_gap').textContent;
+  document.getElementById('share_lunch').textContent = document.getElementById('d_lunch').textContent;
 
   const rows = [...tbody.querySelectorAll('tr')].filter(tr=>{
     const c = tr.querySelector('.c_c').value, d = tr.querySelector('.c_d').value;
@@ -1289,6 +1308,7 @@ function buildSummary(){
   const pitch = document.getElementById('d_pitch').textContent;
   const elapsed = document.getElementById('d_elapsed').textContent;
   const gap = document.getElementById('d_gap').textContent;
+  const lunch = document.getElementById('d_lunch').textContent;
 
   const rows = [...tbody.querySelectorAll('tr')].filter(tr=>{
     const c = tr.querySelector('.c_c').value, d = tr.querySelector('.c_d').value;
@@ -1325,19 +1345,20 @@ function buildSummary(){
     {label:'プラント〜現場', value:distance},
   ]);
   lines.push(`現在 ${count}台 / ${m3}m3 打設済`);
-  lines.push(`経過 ${elapsed} ／ 平均ピッチ ${pitch} m3/h ／ 待ち時間合計 ${gap}`);
+  lines.push(`経過 ${elapsed} ／ 平均ピッチ ${pitch} m3/h ／ 待ち時間合計(昼休憩除く) ${gap} ／ 昼休憩 ${lunch}`);
   lines.push(`━━━━━━━━━━`);
 
   const compareRows = [...document.querySelectorAll('#compareTbody tr')];
   if(compareRows.length){
     lines.push('【前回・前々回との比較】');
-    compareRows.forEach(tr=>{
+    compareRows.forEach((tr,i)=>{
       const label = tr.children[0].textContent.trim();
       const todayVal = tr.querySelector('.cmp-today').textContent.trim();
       const prev1Val = tr.querySelector('.cmp-input[data-col="prev1"]').value || '-';
       const prev2Val = tr.querySelector('.cmp-input[data-col="prev2"]').value || '-';
+      const sep = compareRowTypes[i] === 'text' ? '：' : ' ';
       lines.push(label);
-      lines.push(`今回${todayVal} / 前回${prev1Val} / 前々回${prev2Val}`);
+      lines.push(`今回${sep}${todayVal} / 前回${sep}${prev1Val} / 前々回${sep}${prev2Val}`);
     });
     lines.push(`━━━━━━━━━━`);
   }
@@ -1391,10 +1412,10 @@ function buildSummary(){
 
   if(rows.length){
     lines.push('【台数別 時間記録】');
-    lines.push('台数 / 車番 / 工場発時間 / 打設開始 / 打設完了 / 所要時間 / 荷下し時間 / 備考');
+    lines.push('台数 ⭐︎ 車番 / 工場発時間 🚚 打設開始 → 打設完了 ⏰ 所要時間 ⌛️ 荷下し時間 ⭐︎備考');
     rows.forEach(tr=>{
       const rownum = tr.querySelector('.rownum').textContent || '-';
-      const no = tr.querySelector('.c_no').value || '-';
+      const no = (tr.querySelector('.c_no').value || '-').padStart(2,'0');
       const aRaw = tr.querySelector('.c_a').value;
       const cRaw = tr.querySelector('.c_c').value;
       const dRaw = tr.querySelector('.c_d').value;
@@ -1403,10 +1424,10 @@ function buildSummary(){
       const d = dRaw || '--:--';
       const daMin = diffMin(aRaw, dRaw);
       const dcMin = diffMin(cRaw, dRaw);
-      const da = daMin===null ? '-' : `${daMin}分`;
-      const dc = dcMin===null ? '-' : `${dcMin}分`;
+      const da = daMin===null ? ' -' : `${String(daMin).padStart(2,' ')}分`;
+      const dc = dcMin===null ? ' -' : `${String(dcMin).padStart(2,' ')}分`;
       const note = tr.querySelector('.c_note').value || '-';
-      lines.push(`${rownum} / ${no} / ${a} / ${c} / ${d} / ${da} / ${dc} / ${note}`);
+      lines.push(`${rownum} ⭐︎${no} / ${a} 🚚 ${c} → ${d} ⏰ ${da} / ${dc} ⭐︎ ${note}`);
     });
     lines.push(`━━━━━━━━━━`);
   }
