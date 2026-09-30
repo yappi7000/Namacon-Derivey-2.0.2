@@ -88,6 +88,7 @@
     background:#fff;
   }
   input:focus{outline:2px solid var(--orange);outline-offset:1px;}
+  .input-narrow{max-width:100px;}
 
   details summary{
     cursor:pointer;
@@ -264,9 +265,9 @@
     <details style="margin-top:10px;">
       <summary>打設詳細を入力（呼び強度・スランプなど）▾</summary>
       <div class="grid g3">
-        <div><label>呼び強度</label><input type="text" id="f_strength"></div>
-        <div><label>スランプ/スランプフロー</label><input type="text" id="f_slump"></div>
-        <div><label>骨材寸法</label><input type="text" id="f_agg"></div>
+        <div><label>呼び強度</label><input type="text" id="f_strength" class="input-narrow"></div>
+        <div><label>スランプ/スランプフロー</label><input type="text" id="f_slump" class="input-narrow"></div>
+        <div><label>骨材寸法</label><input type="text" id="f_agg" class="input-narrow"></div>
         <div><label>セメント種類</label>
           <select id="f_cement">
             <option value=""></option><option>N</option><option>M</option><option>BB</option><option>HB</option>
@@ -278,16 +279,16 @@
         <div><label>膨張材(ハイパー/CSA-S)</label>
           <select id="f_expansive"><option value=""></option><option>あり</option><option>なし</option></select>
         </div>
-        <div><label>モルタル（m3）</label><input type="number" id="f_mortar_m3" step="0.1"></div>
+        <div><label>モルタル（m3）</label><input type="number" id="f_mortar_m3" step="0.1" class="input-narrow"></div>
         <div><label>モルタル 配合比</label>
           <select id="f_mortar_ratio">
             <option value=""></option><option>1:2</option><option>1:2.5</option><option>1:3</option>
           </select>
         </div>
-        <div><label>予定数量(m3)</label><input type="number" id="f_planned" step="0.1"></div>
-        <div><label>待ちの数量(m3)</label><input type="number" id="f_waiting" step="0.1"></div>
-        <div><label>積み数(m3積/台)</label><input type="number" id="f_loadsize" step="0.1"></div>
-        <div><label>台数(台回り)</label><input type="text" id="f_rounds"></div>
+        <div><label>予定数量(m3)</label><input type="number" id="f_planned" step="0.1" class="input-narrow"></div>
+        <div><label>待ちの数量(m3)</label><input type="number" id="f_waiting" step="0.1" class="input-narrow"></div>
+        <div><label>積み数(m3積/台)</label><input type="number" id="f_loadsize" step="0.1" class="input-narrow"></div>
+        <div><label>台数(台回り)</label><input type="text" id="f_rounds" class="input-narrow"></div>
         <div><label>昼休憩</label><input type="text" id="f_lunch" placeholder="あり(60分)／なし"></div>
         <div><label>昼休憩 時間帯（待ち時間の集計から除外）</label>
           <div style="display:flex;gap:4px;align-items:center;">
@@ -399,6 +400,19 @@
     </div>
     <div class="status" style="margin-top:4px;">※ m3列は「打設詳細」の積み数から自動入力されます。最後の1台など調整したい行だけ直接書き換えればOK（以後その行は自動更新されません）。</div>
     <div class="status" id="saveStatus"></div>
+  </div>
+
+  <div class="card">
+    <h2>ポンプ①②の台数別記録をまとめて送信</h2>
+    <div class="status" style="margin-bottom:8px;">
+      「ポンプ運用」で①・②を別シートに分けて記録している場合、切替なしでこのボタン1つで①②両方の台数別記録をまとめたテキストが作れます（1枚で両ポンプ管理モードの場合は上の「台数別 時間記録」の中で自動的に①②に分かれて表示されます）。
+    </div>
+    <div class="btnrow">
+      <button class="btn-green" id="combinePumpBtn">🔗 ①②まとめてテキスト化</button>
+      <button class="btn-outline" id="combinePumpCopyBtn">📋 テキストをコピー</button>
+    </div>
+    <textarea id="combinePumpText" readonly style="margin-top:10px;"></textarea>
+    <div class="status" id="combinePumpStatus"></div>
   </div>
 
   <div class="card">
@@ -681,6 +695,22 @@ function fmtMinJp(m){
   if(m===null) return '-';
   const h = Math.floor(m/60), r = m%60;
   return (h>0? h+'時間':'') + r+'分';
+}
+
+// 台数別 時間記録の見出しと、1台分の行を組み立てる共通ヘルパー
+// （通常表示・ポンプ①②の分割表示・別シートまとめ機能の全てで使い回す）
+const VEHICLE_TABLE_HEADER = '台数 ⭐︎ 車番 / 工場発時間 🚚 打設開始 → 打設完了 ⏰ 所要時間 ⌛️ 荷下し時間 ⭐︎備考';
+function fmtVehicleLine(rownum, no, aRaw, cRaw, dRaw, note){
+  const noPad = (no || '-').toString().padStart(2,'0');
+  const a = aRaw || '--:--';
+  const c = cRaw || '--:--';
+  const d = dRaw || '--:--';
+  const daMin = diffMin(aRaw, dRaw);
+  const dcMin = diffMin(cRaw, dRaw);
+  const da = daMin===null ? ' -' : `${String(daMin).padStart(2,' ')}分`;
+  const dc = dcMin===null ? ' -' : `${String(dcMin).padStart(2,' ')}分`;
+  const noteStr = note || '-';
+  return `${rownum} ⭐︎${noPad} / ${a} 🚚 ${c} → ${d} ⏰ ${da} / ${dc} ⭐︎ ${noteStr}`;
 }
 
 function newRow(n){
@@ -1426,23 +1456,42 @@ function buildSummary(){
 
   if(rows.length){
     lines.push('【台数別 時間記録】');
-    lines.push('台数 ⭐︎ 車番 / 工場発時間 🚚 打設開始 → 打設完了 ⏰ 所要時間 ⌛️ 荷下し時間 ⭐︎備考');
-    rows.forEach(tr=>{
-      const rownum = tr.querySelector('.rownum').textContent || '-';
-      const no = (tr.querySelector('.c_no').value || '-').padStart(2,'0');
-      const aRaw = tr.querySelector('.c_a').value;
-      const cRaw = tr.querySelector('.c_c').value;
-      const dRaw = tr.querySelector('.c_d').value;
-      const a = aRaw || '--:--';
-      const c = cRaw || '--:--';
-      const d = dRaw || '--:--';
-      const daMin = diffMin(aRaw, dRaw);
-      const dcMin = diffMin(cRaw, dRaw);
-      const da = daMin===null ? ' -' : `${String(daMin).padStart(2,' ')}分`;
-      const dc = dcMin===null ? ' -' : `${String(dcMin).padStart(2,' ')}分`;
-      const note = tr.querySelector('.c_note').value || '-';
-      lines.push(`${rownum} ⭐︎${no} / ${a} 🚚 ${c} → ${d} ⏰ ${da} / ${dc} ⭐︎ ${note}`);
-    });
+    const pumpMode = fv('pumpsheet');
+    if(pumpMode === 'mix'){
+      // 1枚で両ポンプ管理モード：行ごとのタグ（①②）でグループ分けし、ポンプごとに独立した番号で表示する
+      const group1 = [], group2 = [], groupNone = [];
+      rows.forEach(tr=>{
+        const tag = tr.querySelector('.c_pump').value;
+        (tag==='1' ? group1 : tag==='2' ? group2 : groupNone).push(tr);
+      });
+      const emitGroup = (label, list)=>{
+        if(!list.length) return;
+        lines.push(label);
+        lines.push(VEHICLE_TABLE_HEADER);
+        list.forEach((tr,i)=>{
+          const no = tr.querySelector('.c_no').value;
+          const a = tr.querySelector('.c_a').value;
+          const c = tr.querySelector('.c_c').value;
+          const d = tr.querySelector('.c_d').value;
+          const note = tr.querySelector('.c_note').value;
+          lines.push(fmtVehicleLine(i+1, no, a, c, d, note));
+        });
+      };
+      emitGroup('▼ポンプ①', group1);
+      emitGroup('▼ポンプ②', group2);
+      emitGroup('▼ポンプ未指定', groupNone);
+    } else {
+      lines.push(VEHICLE_TABLE_HEADER);
+      rows.forEach(tr=>{
+        const rownum = tr.querySelector('.rownum').textContent || '-';
+        const no = tr.querySelector('.c_no').value;
+        const a = tr.querySelector('.c_a').value;
+        const c = tr.querySelector('.c_c').value;
+        const d = tr.querySelector('.c_d').value;
+        const note = tr.querySelector('.c_note').value;
+        lines.push(fmtVehicleLine(rownum, no, a, c, d, note));
+      });
+    }
     lines.push(`━━━━━━━━━━`);
   }
 
@@ -1727,6 +1776,51 @@ document.getElementById('compareResetBtn').addEventListener('click', ()=>{
   scheduleSave();
 });
 document.getElementById('refreshSummaryBtn').addEventListener('click', buildSummary);
+
+// ---- ポンプ①②の台数別記録をまとめて送信 ----
+function buildCombinedPumpText(){
+  const date = fv('date') || todayStr();
+  // 今の編集内容を確実に保存してから読み込む（デバウンス待ちにしない）
+  try{ localStorage.setItem(storageKey(date), JSON.stringify(collectData())); }catch(e){}
+
+  const lines = [];
+  lines.push(`【${date} 台数別 時間記録（ポンプ①②まとめ）】`);
+  let found = false;
+  ['1','2'].forEach(p=>{
+    const raw = localStorage.getItem('uchisetsu:' + date + '_p' + p);
+    if(!raw) return;
+    let data;
+    try{ data = JSON.parse(raw); }catch(e){ return; }
+    const dataRows = (data.rows || []).filter(r => r.no || r.c || r.d);
+    if(!dataRows.length) return;
+    found = true;
+    lines.push(`▼ポンプ${p==='1'?'①':'②'}`);
+    lines.push(VEHICLE_TABLE_HEADER);
+    dataRows.forEach((r,i)=>{
+      lines.push(fmtVehicleLine(i+1, r.no, r.a, r.c, r.d, r.note));
+    });
+  });
+  const status = document.getElementById('combinePumpStatus');
+  if(!found){
+    document.getElementById('combinePumpText').value = '';
+    status.textContent = '①・②どちらの保存データも見つかりませんでした。「ポンプ運用」で①または②を選んで台数を入力・保存してから、もう一度お試しください。';
+    return;
+  }
+  document.getElementById('combinePumpText').value = lines.join('\n');
+  status.textContent = 'まとめました。';
+}
+document.getElementById('combinePumpBtn').addEventListener('click', buildCombinedPumpText);
+document.getElementById('combinePumpCopyBtn').addEventListener('click', async ()=>{
+  const status = document.getElementById('combinePumpStatus');
+  const txt = document.getElementById('combinePumpText').value;
+  if(!txt){ status.textContent = '先に「①②まとめてテキスト化」を押してください。'; return; }
+  try{
+    await navigator.clipboard.writeText(txt);
+    status.textContent = 'コピーしました。LINEに貼り付けて送信してください。';
+  }catch(e){
+    status.textContent = 'コピーできませんでした。テキストを長押しして手動でコピーしてください。';
+  }
+});
 document.getElementById('shareImgBtn').addEventListener('click', shareAsImage);
 document.getElementById('copyBtn').addEventListener('click', async ()=>{
   buildSummary();
