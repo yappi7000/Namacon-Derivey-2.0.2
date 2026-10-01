@@ -1376,7 +1376,7 @@ function buildSummary(){
     {label:'モルタル', value:fv('mortar')},
     {label:'呼び強度/スランプ/骨材', value:[fv('strength'),fv('slump'),fv('agg')].filter(Boolean).join('/')},
     {label:'セメント種類', value:fv('cement')},
-    {label:'AE減水剤', value:fv('admixture')},
+    {label:'高性能AE減水剤', value:fv('admixture')},
     {label:'膨張材', value:fv('expansive')},
     {label:'モルタル(m3/配合比)', value:(fv('mortar_m3')||fv('mortar_ratio'))? `${fv('mortar_m3')||'-'}m3／${fv('mortar_ratio')||'-'}`:''},
     {label:'待ちの数量', value:fv('waiting')? fv('waiting')+'m3':''},
