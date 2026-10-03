@@ -450,6 +450,33 @@
     </div>
   </div>
 
+
+  <div class="card" id="dispatchPlanner">
+    <h2>🚚 次回打設・配車計画シミュレーター（試算）</h2>
+    <p style="font-size:12px;color:var(--ink-soft);line-height:1.7">入力した条件から必要台数・出荷間隔を計算します。実績からのAI予測ではなく理論値です。交通状況、プラント能力、現場の安全条件を確認して最終決定してください。</p>
+    <div class="btnrow"><button type="button" class="btn-outline" id="dpImport">現在の記録から数値を取り込む</button></div>
+    <div class="grid" style="margin-top:12px">
+      <div><label>次回打設数量（m³）</label><input id="dpVolume" type="number" min="0" step="0.1" value="100"></div>
+      <div><label>目標打設ピッチ（m³/h）</label><input id="dpPitch" type="number" min="0" step="0.1" value="30"></div>
+      <div><label>車両1台の積載量（m³）</label><input id="dpLoad" type="number" min="0" step="0.1" value="4"></div>
+      <div><label>プラント→現場（分）</label><input id="dpOut" type="number" min="0" step="1" value="30"></div>
+      <div><label>現場待機（分）</label><input id="dpWait" type="number" min="0" step="1" value="5"></div>
+      <div><label>荷下ろし（分）</label><input id="dpUnload" type="number" min="0" step="1" value="8"></div>
+      <div><label>洗い時間（分）</label><input id="dpWash" type="number" min="0" step="1" value="5"></div>
+      <div><label>現場→プラント（分）</label><input id="dpBack" type="number" min="0" step="1" value="30"></div>
+      <div><label>再積込・出荷準備（分）</label><input id="dpReload" type="number" min="0" step="1" value="7"></div>
+      <div><label>計画配車台数（比較用）</label><input id="dpFleet" type="number" min="1" step="1" value="12"></div>
+      <div><label>プラント供給能力（m³/h、任意）</label><input id="dpPlant" type="number" min="0" step="0.1" placeholder="未入力"></div>
+      <div><label>配車余裕台数（任意）</label><input id="dpBuffer" type="number" min="0" step="1" value="0"></div>
+    </div>
+    <div id="dpResults" aria-live="polite" style="background:#F3F5F6;border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;line-height:1.9;font-size:13px"></div>
+    <div class="btnrow">
+      <button type="button" class="btn-primary" id="dpCalculate">配車計画を再計算</button>
+      <button type="button" class="btn-outline" id="dpCopy">試算結果をコピー</button>
+    </div>
+    <div class="status" id="dpStatus">この試算の入力値は端末内に別保存され、既存の現場記録には影響しません。</div>
+  </div>
+
   <div class="card">
     <h2>次回打設予定</h2>
     <div class="grid">
@@ -1881,6 +1908,73 @@ document.getElementById('f_block').addEventListener('change', switchToBlock);
   const date = todayStr();
   document.getElementById('f_date').value = date;
   await loadForDate(date);
+})();
+
+// 独立配車試算。既存の保存形式・計算・LINE送信処理には介入しない。
+(function dispatchPlannerInit(){
+  const ids=['Volume','Pitch','Load','Out','Wait','Unload','Wash','Back','Reload','Fleet','Plant','Buffer'];
+  const $=id=>document.getElementById(id);
+  const num=k=>Number($('dp'+k).value);
+  const safe=(k)=>{const raw=$('dp'+k).value;return raw.trim()===''?NaN:Number(raw)};
+  let report='';
+  function calculate(){
+    const required=['Volume','Pitch','Load','Out','Wait','Unload','Wash','Back','Reload','Fleet','Buffer'];
+    if(required.some(k=>!Number.isFinite(safe(k))||safe(k)<0) ||
+       ['Volume','Pitch','Load','Fleet'].some(k=>safe(k)<=0) ||
+       !Number.isInteger(num('Fleet')) || !Number.isInteger(num('Buffer')) ||
+       ($('dpPlant').value.trim()!=='' && (!Number.isFinite(num('Plant'))||num('Plant')<=0))){
+      $('dpResults').textContent='入力値を確認してください。数量・ピッチ・積載量・計画台数は正数、各時間と余裕台数は0以上です。台数は整数で入力してください。';
+      report='';return;
+    }
+    const cycle=['Out','Wait','Unload','Wash','Back','Reload'].reduce((sum,k)=>sum+num(k),0);
+    const interval=60*num('Load')/num('Pitch');
+    const minimum=Math.max(1,Math.ceil(cycle/interval-1e-10));
+    const recommended=minimum+num('Buffer');
+    const trucks=Math.ceil(num('Volume')/num('Load'));
+    const duration=num('Volume')/num('Pitch')*60;
+    const actual=Math.min(num('Pitch'),num('Fleet')*num('Load')*60/cycle,
+      Number.isFinite(safe('Plant'))?num('Plant'):Infinity);
+    const actualDuration=num('Volume')/actual*60;
+    const plantNote=Number.isFinite(safe('Plant')) && num('Plant')<num('Pitch')
+      ?'⚠️ プラント供給能力が目標ピッチ未満です。':'';
+    const fleetNote=num('Fleet')<minimum?'⚠️ 計画台数では目標ピッチに不足する可能性があります。':'計画台数は理論上の最低台数を満たします。';
+    const f=n=>Number(n).toFixed(1);
+    report=[
+      '【次回打設・配車計画（理論試算）】',
+      `打設数量 ${f(num('Volume'))}m³ / 目標 ${f(num('Pitch'))}m³/h / 積載 ${f(num('Load'))}m³/台`,
+      `1台の循環時間 ${f(cycle)}分（往路${num('Out')} / 待機${num('Wait')} / 荷下ろし${num('Unload')} / 洗い${num('Wash')} / 復路${num('Back')} / 再積込${num('Reload')}）`,
+      `必要出荷間隔 ${f(interval)}分 / 理論最低台数 ${minimum}台 / 余裕込み ${recommended}台`,
+      `必要延べ運搬回数 ${trucks}回 / 目標上の打設時間 ${f(duration)}分`,
+      `計画配車 ${num('Fleet')}台 / 供給上限を考慮した試算ピッチ ${f(actual)}m³/h / 試算所要 ${f(actualDuration)}分`,
+      fleetNote,plantNote,
+      '※均等循環・一定ピッチを仮定。交通渋滞、車両容量差、作業休止、時間帯別の出荷能力は別途確認。'
+    ].filter(Boolean).join('\n');
+    $('dpResults').textContent=report;
+    try{localStorage.setItem('ys_dispatch_planner_v1',JSON.stringify(Object.fromEntries(ids.map(k=>[k,$('dp'+k).value]))));}catch(e){}
+  }
+  ids.forEach(k=>$('dp'+k).addEventListener('input',calculate));
+  $('dpCalculate').addEventListener('click',calculate);
+  $('dpImport').addEventListener('click',()=>{
+    const v=id=>document.getElementById(id)?.value;
+    if(Number(v('f_planned'))>0)$('dpVolume').value=v('f_planned');
+    if(Number(v('f_loadsize'))>0)$('dpLoad').value=v('f_loadsize');
+    if(Number(v('f_distance_min'))>=0 && v('f_distance_min')!==''){
+      $('dpOut').value=v('f_distance_min');$('dpBack').value=v('f_distance_min');
+    }
+    if(Number(v('d_pitch')?.replace?.(/,/g,''))>0)$('dpPitch').value=v('d_pitch').replace(/,/g,'');
+    calculate();
+    $('dpStatus').textContent='取得可能な項目だけを反映しました。その他の条件は確認・修正してください。';
+  });
+  $('dpCopy').addEventListener('click',async()=>{
+    if(!report)return;
+    try{await navigator.clipboard.writeText(report);$('dpStatus').textContent='試算結果をコピーしました。';}
+    catch(e){$('dpStatus').textContent='コピーできませんでした。結果欄から手動でコピーしてください。';}
+  });
+  try{
+    const saved=JSON.parse(localStorage.getItem('ys_dispatch_planner_v1')||'{}');
+    ids.forEach(k=>{if(Object.prototype.hasOwnProperty.call(saved,k))$('dp'+k).value=saved[k];});
+  }catch(e){}
+  calculate();
 })();
 </script>
 </body>
