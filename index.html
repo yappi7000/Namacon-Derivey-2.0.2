@@ -509,6 +509,7 @@
     </details>
     <div class="btnrow">
       <button type="button" class="btn-primary" id="dpCalculate">配車計画を再計算</button>
+      <button type="button" class="btn-green" id="dpLineImage">📲 この配車計画だけ画像でLINE共有</button>
       <button type="button" class="btn-outline" id="dpCopy">試算結果をコピー</button>
     </div>
     <div class="status" id="dpStatus">この試算の入力値は端末内に別保存され、既存の現場記録には影響しません。</div>
@@ -1397,7 +1398,8 @@ function showImageFallback(dataUrl, filename){
       画像を長押しして「画像を保存」または「共有」からLINEに送ってください。
     </div>
     <img src="${dataUrl}" style="max-width:100%;border-radius:8px;margin-top:8px;">
-    <button id="closeFallbackBtn" style="margin-top:16px;padding:10px 24px;border:none;border-radius:8px;background:#E8590C;color:#fff;font-weight:700;font-size:14px;">閉じる</button>
+    <a href="${dataUrl}" download="${filename}" style="margin-top:16px;padding:10px 24px;border-radius:8px;background:#2F7D5E;color:#fff;font-weight:700;font-size:14px;text-decoration:none;">画像を保存（PNG）</a>
+    <button id="closeFallbackBtn" style="margin-top:10px;padding:10px 24px;border:none;border-radius:8px;background:#E8590C;color:#fff;font-weight:700;font-size:14px;">閉じる</button>
   `;
   document.body.appendChild(overlay);
   overlay.querySelector('#closeFallbackBtn').addEventListener('click', ()=>{ document.body.removeChild(overlay); });
@@ -2028,6 +2030,38 @@ document.getElementById('f_block').addEventListener('change', switchToBlock);
     if(Number(v('d_pitch')?.replace?.(/,/g,''))>0)$('dpPitch').value=v('d_pitch').replace(/,/g,'');
     calculate();
     $('dpStatus').textContent='取得可能な項目だけを反映しました。その他の条件は確認・修正してください。';
+  });
+  $('dpLineImage').addEventListener('click',async()=>{
+    const status=$('dpStatus');
+    if(typeof html2canvas==='undefined'){
+      status.textContent='画像生成に必要なライブラリを読み込めません。通信環境を確認してください。';
+      return;
+    }
+    const button=$('dpLineImage');
+    button.disabled=true;
+    const source=$('dispatchPlanner');
+    // 現在表示されているカードのみ複製。ほかの現場記録やページ全体は含めない。
+    const clone=source.cloneNode(true);
+    clone.id='dpShareCapture';
+    clone.style.cssText='width:860px;max-width:none;margin:0;position:absolute;left:-9999px;top:0;z-index:-1;background:#fff;';
+    clone.querySelectorAll('.btnrow,#dpStatus').forEach(el=>el.remove());
+    // ユーザーが入力した最新の値を複製側にも反映する。
+    source.querySelectorAll('input').forEach(input=>{
+      const target=clone.querySelector('#'+input.id);
+      if(target){target.value=input.value;target.setAttribute('value',input.value);}
+    });
+    const originalDetails=source.querySelector('details.dp-input-toggle');
+    const cloneDetails=clone.querySelector('details.dp-input-toggle');
+    if(originalDetails&&cloneDetails)cloneDetails.open=originalDetails.open;
+    document.body.appendChild(clone);
+    const date=(document.getElementById('f_date')?.value||new Date().toISOString().slice(0,10));
+    const filename='次回打設_配車計画_'+date+'.png';
+    try{
+      await captureCardAsImage(clone,filename,'次回打設・配車計画',status);
+    }finally{
+      clone.remove();
+      button.disabled=false;
+    }
   });
   $('dpCopy').addEventListener('click',async()=>{
     if(!report)return;
