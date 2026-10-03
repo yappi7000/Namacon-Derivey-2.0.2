@@ -206,6 +206,39 @@
   }
   .status{font-size:11px;color:var(--ink-soft);margin-top:6px;min-height:14px;}
   .footer-note{font-size:10.5px;color:var(--ink-soft);text-align:center;margin-top:10px;line-height:1.6;}
+
+/* 配車計画：結果を主役に、入力欄を省スペース化 */
+#dispatchPlanner .dp-result{background:#17242e;color:#fff;border-radius:12px;padding:14px;margin:10px 0 12px}
+#dispatchPlanner .dp-result-title{font-size:12px;font-weight:700;color:#cdd7df;margin-bottom:9px}
+#dispatchPlanner .dp-hero{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+#dispatchPlanner .dp-stat{background:#273844;border-radius:8px;padding:11px 7px;text-align:center}
+#dispatchPlanner .dp-stat.main{background:#e8590c}
+#dispatchPlanner .dp-stat .dp-number{font-family:'Roboto Mono',monospace;font-weight:700;font-size:clamp(24px,4vw,34px);line-height:1.2}
+#dispatchPlanner .dp-stat .dp-unit{font-size:12px;margin-left:2px}
+#dispatchPlanner .dp-stat .dp-label{font-size:11px;color:#e4e9ed;margin-top:4px}
+#dispatchPlanner .dp-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:9px}
+#dispatchPlanner .dp-mini{background:#f2f4f5;border-radius:7px;padding:9px 10px}
+#dispatchPlanner .dp-mini small{display:block;color:#52616c;font-size:11px}
+#dispatchPlanner .dp-mini strong{font-family:'Roboto Mono',monospace;font-size:19px;color:#1c2b36}
+#dispatchPlanner .dp-flow{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;align-items:center}
+#dispatchPlanner .dp-step{background:#e9eef1;border-radius:6px;padding:6px 8px;font-size:11px;color:#233441}
+#dispatchPlanner .dp-step b{font-family:'Roboto Mono',monospace;font-size:15px;display:block}
+#dispatchPlanner .dp-message{margin-top:10px;border-left:4px solid #2f7d5e;background:#eef6f1;padding:9px 11px;font-size:12px;line-height:1.6}
+#dispatchPlanner .dp-message.warn{border-left-color:#e8590c;background:#fff2e9}
+#dispatchPlanner .dp-note{font-size:10.5px;color:#66737d;margin:9px 0;line-height:1.6}
+#dispatchPlanner .dp-inputs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin-top:9px}
+#dispatchPlanner .dp-inputs>div{min-width:0}
+#dispatchPlanner .dp-inputs label{font-size:10.5px;line-height:1.3;margin-bottom:3px;min-height:27px}
+#dispatchPlanner .dp-inputs input{padding:5px 7px;height:34px;font-size:13px}
+#dispatchPlanner .dp-input-toggle{margin:10px 0 4px;font-size:12px;font-weight:700;color:var(--blue)}
+#dispatchPlanner .dp-input-toggle summary{cursor:pointer}
+@media(max-width:580px){
+ #dispatchPlanner .dp-inputs{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #dispatchPlanner .dp-hero{gap:4px}
+ #dispatchPlanner .dp-stat{padding:9px 3px}
+ #dispatchPlanner .dp-stat .dp-number{font-size:25px}
+ #dispatchPlanner .dp-stat .dp-label{font-size:10px}
+}
 </style>
 </head>
 <body>
@@ -454,8 +487,11 @@
   <div class="card" id="dispatchPlanner">
     <h2>🚚 次回打設・配車計画シミュレーター（試算）</h2>
     <p style="font-size:12px;color:var(--ink-soft);line-height:1.7">入力した条件から必要台数・出荷間隔を計算します。実績からのAI予測ではなく理論値です。交通状況、プラント能力、現場の安全条件を確認して最終決定してください。</p>
-    <div class="btnrow"><button type="button" class="btn-outline" id="dpImport">現在の記録から数値を取り込む</button></div>
-    <div class="grid" style="margin-top:12px">
+    <div id="dpResults" aria-live="polite"></div>
+    <details class="dp-input-toggle" open>
+      <summary>⚙️ 計算条件を編集（変更すると結果を自動更新）</summary>
+      <div class="btnrow" style="margin:6px 0"><button type="button" class="btn-outline" id="dpImport" style="padding:6px 10px;font-size:11px">現在の記録から数値を取り込む</button></div>
+      <div class="dp-inputs">
       <div><label>次回打設数量（m³）</label><input id="dpVolume" type="number" min="0" step="0.1" value="100"></div>
       <div><label>目標打設ピッチ（m³/h）</label><input id="dpPitch" type="number" min="0" step="0.1" value="30"></div>
       <div><label>車両1台の積載量（m³）</label><input id="dpLoad" type="number" min="0" step="0.1" value="4"></div>
@@ -469,7 +505,8 @@
       <div><label>プラント供給能力（m³/h、任意）</label><input id="dpPlant" type="number" min="0" step="0.1" placeholder="未入力"></div>
       <div><label>配車余裕台数（任意）</label><input id="dpBuffer" type="number" min="0" step="1" value="0"></div>
     </div>
-    <div id="dpResults" aria-live="polite" style="background:#F3F5F6;border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;line-height:1.9;font-size:13px"></div>
+
+    </details>
     <div class="btnrow">
       <button type="button" class="btn-primary" id="dpCalculate">配車計画を再計算</button>
       <button type="button" class="btn-outline" id="dpCopy">試算結果をコピー</button>
@@ -1921,6 +1958,7 @@ document.getElementById('f_block').addEventListener('change', switchToBlock);
     const required=['Volume','Pitch','Load','Out','Wait','Unload','Wash','Back','Reload','Fleet','Buffer'];
     if(required.some(k=>!Number.isFinite(safe(k))||safe(k)<0) ||
        ['Volume','Pitch','Load','Fleet'].some(k=>safe(k)<=0) ||
+       ['Out','Wait','Unload','Wash','Back','Reload'].reduce((v,k)=>v+num(k),0)<=0 ||
        !Number.isInteger(num('Fleet')) || !Number.isInteger(num('Buffer')) ||
        ($('dpPlant').value.trim()!=='' && (!Number.isFinite(num('Plant'))||num('Plant')<=0))){
       $('dpResults').textContent='入力値を確認してください。数量・ピッチ・積載量・計画台数は正数、各時間と余裕台数は0以上です。台数は整数で入力してください。';
@@ -1949,7 +1987,33 @@ document.getElementById('f_block').addEventListener('change', switchToBlock);
       fleetNote,plantNote,
       '※均等循環・一定ピッチを仮定。交通渋滞、車両容量差、作業休止、時間帯別の出荷能力は別途確認。'
     ].filter(Boolean).join('\n');
-    $('dpResults').textContent=report;
+    const flow=[['往路','Out'],['現場待機','Wait'],['荷下ろし','Unload'],['洗い','Wash'],['復路','Back'],['再積込','Reload']];
+    const flowHtml=flow.map(([label,key],i)=>`${i?'<span aria-hidden="true" style="color:#8796a1">→</span>':''}<span class="dp-step">${label}<b>${f(num(key))}分</b></span>`).join('');
+    const warn=num('Fleet')<minimum || !!plantNote;
+    $('dpResults').innerHTML=`
+      <div class="dp-result">
+        <div class="dp-result-title">📊 次回打設・配車計画｜計算結果</div>
+        <div class="dp-hero">
+          <div class="dp-stat main"><div><span class="dp-number">${minimum}</span><span class="dp-unit">台</span></div><div class="dp-label">理論最低台数</div></div>
+          <div class="dp-stat"><div><span class="dp-number">${f(interval)}</span><span class="dp-unit">分</span></div><div class="dp-label">必要出荷間隔</div></div>
+          <div class="dp-stat"><div><span class="dp-number">${f(cycle)}</span><span class="dp-unit">分</span></div><div class="dp-label">1台の循環時間</div></div>
+        </div>
+        <div style="font-size:11px;margin-top:9px;color:#dce4e9">打設 ${f(num('Volume'))}m³ ／ 目標 ${f(num('Pitch'))}m³/h ／ 1車 ${f(num('Load'))}m³</div>
+      </div>
+      <div class="dp-summary">
+        <div class="dp-mini"><small>余裕込み必要台数</small><strong>${recommended} 台</strong></div>
+        <div class="dp-mini"><small>現在の計画配車</small><strong>${num('Fleet')} 台</strong></div>
+        <div class="dp-mini"><small>必要な延べ運搬回数</small><strong>${trucks} 回</strong></div>
+        <div class="dp-mini"><small>目標打設時間</small><strong>${f(duration)} 分</strong></div>
+        <div class="dp-mini"><small>供給上限を考慮した試算ピッチ</small><strong>${f(actual)} m³/h</strong></div>
+        <div class="dp-mini"><small>試算所要時間</small><strong>${f(actualDuration)} 分</strong></div>
+      </div>
+      <div class="dp-message ${warn?'warn':''}">${warn?'⚠️':'✓'} ${fleetNote}${plantNote?' '+plantNote:''}</div>
+      <details style="margin-top:11px"><summary style="font-size:12px;font-weight:700;color:var(--blue)">🚛 85分などの循環時間の内訳を見る</summary>
+        <div class="dp-flow">${flowHtml}</div>
+      </details>
+      <div class="dp-note">※均等循環・一定ピッチの理論試算です。現場待機は入力した想定値であり、台数に応じた渋滞・待機の変化は未反映です。交通、作業休止、時間帯別プラント能力などは別途確認してください。</div>
+    `;
     try{localStorage.setItem('ys_dispatch_planner_v1',JSON.stringify(Object.fromEntries(ids.map(k=>[k,$('dp'+k).value]))));}catch(e){}
   }
   ids.forEach(k=>$('dp'+k).addEventListener('input',calculate));
